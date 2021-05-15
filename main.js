@@ -4,20 +4,56 @@ import { useRef, useState } from "preact/hooks";
 
 import { html } from "htm/preact";
 
-// function buf2hex(buffer) {
-//     return [...new Uint8Array(buffer)].map(x => x.toString(16).padStart(2, '0')).join('');
-// }
+function bufferToBase64(buffer) {
+    return btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)));
+}
 
-// function hex2buf(hexString) {
-//     return new Uint8Array(hexString.match(/../g).map(hexByte => parseInt(hexByte, 16)));
-// }
+function base64ToBuffer(string) {
+    return new Uint8Array(atob(string).split('').map(c => c.charCodeAt(0)));
+}
 
-// my_lzma.compress("provaprovaprova", 1, (result, err) => {
-//     if (err) {
-//         throw err;
-//     }
-//     console.log(buf2hex(result));
-// });
+let locationState = null;
+
+if (location.hash) {
+    const compressedBase64 = location.hash.slice(1);
+    const compressed = base64ToBuffer(compressedBase64);
+
+    console.log(Array.from(compressed));
+
+    (async () => {
+        const data = await decompressLZMA(compressed);
+        console.log('decompressed', data);
+        locationState = JSON.parse(data);
+
+        main();
+    })();
+} else {
+    setTimeout(() => main(), 0);
+}
+
+function compressLZMA(data, level) {
+    return new Promise((resolve, reject) => {
+        lzma.compress(data, level, (result, err) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(result);
+            }
+        });
+    })
+}
+
+function decompressLZMA(compressedData) {
+    return new Promise((resolve, reject) => {
+        lzma.decompress(compressedData, (result, err) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(result);
+            }
+        });
+    })
+}
 
 // Boh la VDOM è cattiva
 const $span = document.createElement('span');
@@ -32,6 +68,7 @@ const noop = () => { };
 // e.g. { 0: "a", 1: "b", 2: "c" } => ["a", "b", "c"]
 const listify = o => Object.assign([], o);
 
+// Magia per fare "...${onEnter(e => ...)}" con htm...
 const onEnter = callback => ({
     onKeydown: e => e.key === 'Enter' && callback(e),
 })
@@ -187,11 +224,13 @@ const Order = ({ order, setOrder, removeOrder }) => {
 
 const App = () => {
     const [orders, setOrders] = useState(
-        location.hash ? JSON.parse(atob(location.hash.slice(1))) : [
+        location.hash ? locationState : [
             { text: 'Primo oggetto', owners: ['Persona 1', 'Persona 2'], price: 1 },
             { text: 'Secondo oggetto', owners: ['Persona 1'], price: 2 },
         ]
     );
+
+    window.setOrders = setOrders;
 
     const peopleOrders = groupByMultiples(orders, order => order.owners);
 
@@ -217,8 +256,10 @@ const App = () => {
         }
     ]);
 
-    const generateLink = () => {
-        location.hash = btoa(JSON.stringify(orders));
+    const generateLink = async () => {
+        const data = JSON.stringify(orders);
+        const compressed = await compressLZMA(data, 3);
+        location.hash = bufferToBase64(compressed);
     };
 
     return html`
@@ -276,12 +317,17 @@ const App = () => {
     `;
 };
 
-try {
-    render(html`<${App} />`, document.querySelector('#app'));
-} catch (error) {
-    const $message = document.createElement('i');
-    $message.style.display = 'block';
-    $message.style.textAlign = 'center';
-    $message.textContent = 'Qualcosa è andato storto D:';
-    document.querySelector('#app').appendChild($message);
+function main() {
+    try {
+        render(html`<${App} />`, document.querySelector('#app'));
+    } catch (error) {
+        const $message = document.createElement('i');
+        $message.style.display = 'block';
+        $message.style.textAlign = 'center';
+        $message.textContent = 'Qualcosa è andato storto D:';
+        document.querySelector('#app').appendChild($message);
+
+        console.error(error);
+    }
 }
+
