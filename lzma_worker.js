@@ -1,0 +1,1 @@
+node_modules/lzma/src/lzma_worker.js

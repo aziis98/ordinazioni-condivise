@@ -1,0 +1,17 @@
+{
+  "name": "ordinazioni-14mag2021",
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^2.3.0"
+  },
+  "dependencies": {
+    "htm": "^3.0.4",
+    "lzma": "^2.3.2",
+    "preact": "^10.5.13"
+  }
+}
