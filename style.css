@@ -248,6 +248,29 @@ input[type=text] {
     background: #666;
 }
 
+.loading .icon {
+    font-size: 2rem;
+    animation: loading-hourglass 1.25s linear infinite;
+}
+
+@keyframes loading-hourglass {
+    0% {
+        transform: rotate(0deg);
+    }
+    10% {
+        transform: rotate(0deg);
+    }
+    50% {
+        transform: rotate(180deg);
+    }
+    60% {
+        transform: rotate(180deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
 /* Media queries */
 
 @media screen and (max-width: 500px) {

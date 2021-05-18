@@ -1,6 +1,6 @@
 
 import { render } from "preact";
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 
 import { html } from "htm/preact";
 
@@ -12,25 +12,13 @@ function base64ToBuffer(string) {
     return new Uint8Array(atob(string).split('').map(c => c.charCodeAt(0)));
 }
 
-let locationState = null;
+// if (location.hash) {
+//     const compressedBase64 = location.hash.slice(1);
+// } else {
+//     setTimeout(() => main(), 0);
+// }
 
-if (location.hash) {
-    const compressedBase64 = location.hash.slice(1);
-    const compressed = base64ToBuffer(compressedBase64);
-
-    console.log(Array.from(compressed));
-
-    (async () => {
-        const data = await decompressLZMA(compressed);
-        console.log('decompressed', data);
-        locationState = JSON.parse(data);
-
-        main();
-    })();
-} else {
-    setTimeout(() => main(), 0);
-}
-
+/** Pass data and a level (1-9) for the compression */
 function compressLZMA(data, level) {
     return new Promise((resolve, reject) => {
         lzma.compress(data, level, (result, err) => {
@@ -56,24 +44,43 @@ function decompressLZMA(compressedData) {
 }
 
 // Boh la VDOM è cattiva
-const $span = document.createElement('span');
-const escapeCode = code => {
-    $span.innerHTML = code;
-    return $span.innerText;
-}
+// const $span = document.createElement('span');
+// const escapeCode = code => {
+//     $span.innerHTML = code;
+//     return $span.innerText;
+// }
 
-// NO-OPeration
-const noop = () => { };
+/** Identity shortcut */
+const identity = value => value;
+/** No operation shortcut */
+const noOp = () => { };
 
 // e.g. { 0: "a", 1: "b", 2: "c" } => ["a", "b", "c"]
 const listify = o => Object.assign([], o);
 
-// Magia per fare "...${onEnter(e => ...)}" con htm...
+function sortBy(list, keyFn = 'self') {
+    keyFn = keyFn === 'self' ? identity : keyFn;
+
+    const result = [...list];
+    result.sort((item1, item2) => {
+        const k1 = keyFn(item1);
+        const k2 = keyFn(item2);
+        return k1 === k2 ? 0 : (k1 < k2 ? -1 : 1);
+    });
+    return result;
+}
+
+/** Wrapper magico per fare direttamente `<element ...${onEnter(e => ...)} />` con htm... */
 const onEnter = callback => ({
     onKeydown: e => e.key === 'Enter' && callback(e),
 })
 
-// (Array<T>, T -> Array<K>) -> { [K]: [T] }
+/**
+ * Al momento il tipo è una cosa di questo genere
+ * ```
+ * (Array<T>, T -> Array<K>) -> { [K]: [T] }
+ * ```
+*/
 function groupByMultiples(list, getKeys) {
     const dict = {};
 
@@ -94,58 +101,47 @@ const Icon = ({ name }) => html`
 `;
 
 const ModifiableText = ({ text, setText, options }) => {
-    const [modText, setModText] = useState(false);
-    const [internalText, setInternalText] = useState(text);
+    // Reference used to programmatically select all text when starting to edit the text
     const $input = useRef(null);
+    // Tell if this is in editing state
+    const [editing, setEditing] = useState(false);
+    // This is just used as a buffer while editing (usefull for the `price` usecase)
+    const [internalText, setInternalText] = useState(text);
 
-    const modify = () => {
-        setModText(true);
+    const startEditing = () => {
+        setEditing(true);
         setInternalText(text);
-
+        // Beh di certo per sicurezza il `setTimeout` non può fare male
         setTimeout(() => $input.current.select(), 0);
     };
 
-    const done = (text) => {
-        setModText(false);
+    const finishEditing = (text) => {
+        setEditing(false);
         setText(text || internalText);
     };
 
     return html`
-        ${modText ? 
-            (options ? 
-                html`
-                    <select onChange=${e => console.log(e.target.value)}>
-                        ${options.map((option, i) => html`
-                            <option value="${i}">${option}</option>
-                        `)}
-                    </select>
-                    <button class="small" onClick=${() => done()}>
-                        <${Icon} name="done" />
-                    </button>
-                    <button class="small" onClick=${() => done(prompt('Aggiungi un nuovo nome', '???'))}>
-                        <${Icon} name="add" />
-                    </button>
-                ` : 
-                html `
-                    <input type="text" 
-                        ref=${$input}
-                        value=${internalText} 
-                        onInput=${e => setInternalText(e.target.value)}
-                        ...${onEnter(() => done())} />
-                    <button class="small" onClick=${() => done()}>
-                        <${Icon} name="done" />
-                    </button>
-                `
-            ) : 
+        ${editing ? 
+            html `
+                <input type="text" 
+                    ref=${$input}
+                    value=${internalText} 
+                    onInput=${e => setInternalText(e.target.value)}
+                    ...${onEnter(() => finishEditing())} />
+                <button class="small" onClick=${() => finishEditing()}>
+                    <${Icon} name="done" />
+                </button>
+            ` : 
             html`
                 <div>${text}</div>
-                <button class="small" onClick=${() => modify()}>
+                <button class="small" onClick=${() => startEditing()}>
                     <${Icon} name="edit"/>
                 </button>
             `}
     `;
 }
 
+/** Mi sembrava meglio isolarlo invece di avere un solo `Order` con un if gigante per il caso _readonly_.  */
 const ReviewOrder = ({ order: { text, owners, price } }) => {
     return html`
         <div class="order">
@@ -172,9 +168,9 @@ const Order = ({ order, setOrder, removeOrder }) => {
     const { text, owners, price } = order;
     const readOnly = !setOrder;
 
-    const setText = readOnly ? noop : text => setOrder({ ...order, text });
-    const setOwners = readOnly ? noop : owners => setOrder({ ...order, owners });
-    const setPrice = readOnly ? noop : price => setOrder({ ...order, price });
+    const setText = readOnly ? noOp : text => setOrder({ ...order, text });
+    const setOwners = readOnly ? noOp : owners => setOrder({ ...order, owners });
+    const setPrice = readOnly ? noOp : price => setOrder({ ...order, price });
 
     return html`
         <div class="order">
@@ -222,29 +218,41 @@ const Order = ({ order, setOrder, removeOrder }) => {
     `;
 };
 
-const App = () => {
+const App = ({ url }) => {
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (url) {
+            setLoading(true);
+            const compressedData = base64ToBuffer(url);
+            console.log('Compressed data:', Array.from(compressedData));
+            (async () => {
+                console.log('Decompressing...')
+                const data = await decompressLZMA(compressedData);
+                console.log('Decompressed data:', data);
+                setOrders(JSON.parse(data));
+                setLoading(false);
+            })();
+        }
+    }, []);
+    
     const [orders, setOrders] = useState(
-        location.hash ? locationState : [
-            { text: 'Primo oggetto', owners: ['Persona 1', 'Persona 2'], price: 1 },
-            { text: 'Secondo oggetto', owners: ['Persona 1'], price: 2 },
+        url ? [] : [
+            { text: 'Primo oggetto', owners: ['Persona 1', 'Persona 2'], price: 1.00 },
+            { text: 'Secondo oggetto', owners: ['Persona 1'], price: 2.00 },
         ]
     );
 
-    window.setOrders = setOrders;
-
     const peopleOrders = groupByMultiples(orders, order => order.owners);
 
-    console.log(orders);
-    console.log(peopleOrders);
-
-    const ordina = () => {
-        const newOrders = [...orders];
-        newOrders.sort((a, b) => {
-            const keyA = a.owners.join(',');
-            const keyB = b.owners.join(',');
-            return keyA === keyB ? 0 : (keyA < keyB ? -1 : 1);
+    const sortOrders = () => {
+        const ordersWithSortedOwners = orders.map(order => {
+            return {
+                ...order,
+                owners: sortBy(order.owners, 'self'),
+            };
         });
-        setOrders(newOrders);
+        setOrders(sortBy(ordersWithSortedOwners, order => order.owners.join(' ')));
     }
 
     const addOrder = () => setOrders([
@@ -258,37 +266,44 @@ const App = () => {
 
     const generateLink = async () => {
         const data = JSON.stringify(orders);
-        const compressed = await compressLZMA(data, 3);
-        location.hash = bufferToBase64(compressed);
+        const compressedData = await compressLZMA(data, 9);
+        location.hash = bufferToBase64(compressedData);
     };
 
     return html`
         <div class="orders">
-            ${orders.map((order, i) => {
-                const setOrder = order => setOrders(listify({ ...orders, [i]: order }));
+            ${loading ? 
+                html`
+                    <div class="loading f-center">
+                        <${Icon} name="hourglass_empty" />
+                    </div>
+                ` :
+                html`
+                    ${orders.map((order, i) => {
+                        const setOrder = order => setOrders(listify({ ...orders, [i]: order }));
 
-                const removeOrder = () => {
-                    const newOrders = [...orders];
-                    newOrders.splice(i, 1);
-                    setOrders(newOrders);
-                }
+                        const removeOrder = () => {
+                            const newOrders = [...orders];
+                            newOrders.splice(i, 1);
+                            setOrders(newOrders);
+                        }
 
-                return html`
-                    <${Order} order=${order} setOrder=${setOrder} removeOrder=${removeOrder}/>
-                `;
-            })}
+                        return html`
+                            <${Order} order=${order} setOrder=${setOrder} removeOrder=${removeOrder}/>
+                        `;
+                    })}
+                `}
         </div>
         <div class="orders-actions f-center">
             <button class="text" onClick=${() => addOrder()}>Aggiungi</button>
             <button class="text" onClick=${() => setOrders([])}>Cancella tutti</button>
-            <button class="text" onClick=${() => ordina()}>Ordina lessicograficamente per proprietario</button>
+            <button class="text" onClick=${() => sortOrders()}>Ordina lessicograficamente per proprietario</button>
             <button class="text" onClick=${() => generateLink()}>Genera Link</button>
         </div>
         <p>
             Il tasto "Genera Link" codifica direttamente tutte le informazioni nel link alla pagina, poi basta che condividi quel link (includendo tutta la parte dopo il <code>#</code>).
         </p>
         <hr />
-
         <h2>Costo per persona</h2>
         <div class="receit">
             <div class="people">
@@ -319,15 +334,14 @@ const App = () => {
 
 function main() {
     try {
-        render(html`<${App} />`, document.querySelector('#app'));
+        const hash = location.hash.replace(/^#/, '');
+        render(html`<${App} url=${hash}/>`, document.querySelector('#app'));
     } catch (error) {
-        const $message = document.createElement('i');
-        $message.style.display = 'block';
-        $message.style.textAlign = 'center';
-        $message.textContent = 'Qualcosa è andato storto D:';
-        document.querySelector('#app').appendChild($message);
-
+        document.querySelector('#app').innerHTML = `
+            <i style="display: block; text-align: center;">Qualcosa è andato storto D:</i>
+        `;
         console.error(error);
     }
 }
 
+main();
