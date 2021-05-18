@@ -2,6 +2,12 @@
 
 Mini progetto spastico realizzato in una manciata di ore per provare un po' più seriamente [Preact](https://preactjs.com/) con [htm](https://github.com/developit/htm).
 
+<p align="center">
+    <img src="public/screenshot.png" alt="screenshot" style="width: 75%;">
+    <br>
+    <a align="center" href="https://aziis98-ordinazioni-condivise.netlify.app/">https://aziis98-ordinazioni-condivise.netlify.app/</a>
+</p>
+
 ## Features
 
 - Aggiungere, modificare e rimuovere vari ordini
