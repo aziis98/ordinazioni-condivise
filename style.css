@@ -49,6 +49,8 @@ hr {
     flex-direction: column;
 
     flex-grow: 1;
+
+    user-select: none;
 }
 
 .order {
@@ -62,7 +64,7 @@ hr {
 }
 
 .order:hover {
-    background: #f4f4f4;
+    background: #f2f2f2;
 }
 
 .order:first-child {
@@ -206,7 +208,8 @@ button {
 }
 
 button.text {
-    padding: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #bbb;
 }
 
 button.small {
@@ -228,7 +231,8 @@ button .icon {
 }
 
 button:hover {
-    background: #bbb;
+    background: #ccc;
+    color: #333;
 }
 
 input[type=text] {

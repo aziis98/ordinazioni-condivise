@@ -4,103 +4,13 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { html } from "htm/preact";
 
-function bufferToBase64(buffer) {
-    return btoa(String.fromCharCode.apply(null, new Uint8Array(buffer)));
-}
-
-function base64ToBuffer(string) {
-    return new Uint8Array(atob(string).split('').map(c => c.charCodeAt(0)));
-}
-
-// if (location.hash) {
-//     const compressedBase64 = location.hash.slice(1);
-// } else {
-//     setTimeout(() => main(), 0);
-// }
-
-/** Pass data and a level (1-9) for the compression */
-function compressLZMA(data, level) {
-    return new Promise((resolve, reject) => {
-        lzma.compress(data, level, (result, err) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(result);
-            }
-        });
-    })
-}
-
-function decompressLZMA(compressedData) {
-    return new Promise((resolve, reject) => {
-        lzma.decompress(compressedData, (result, err) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(result);
-            }
-        });
-    })
-}
-
-// Boh la VDOM è cattiva
-// const $span = document.createElement('span');
-// const escapeCode = code => {
-//     $span.innerHTML = code;
-//     return $span.innerText;
-// }
-
-/** Identity shortcut */
-const identity = value => value;
-/** No operation shortcut */
-const noOp = () => { };
-
-// e.g. { 0: "a", 1: "b", 2: "c" } => ["a", "b", "c"]
-const listify = o => Object.assign([], o);
-
-function sortBy(list, keyFn = 'self') {
-    keyFn = keyFn === 'self' ? identity : keyFn;
-
-    const result = [...list];
-    result.sort((item1, item2) => {
-        const k1 = keyFn(item1);
-        const k2 = keyFn(item2);
-        return k1 === k2 ? 0 : (k1 < k2 ? -1 : 1);
-    });
-    return result;
-}
-
-/** Wrapper magico per fare direttamente `<element ...${onEnter(e => ...)} />` con htm... */
-const onEnter = callback => ({
-    onKeydown: e => e.key === 'Enter' && callback(e),
-})
-
-/**
- * Al momento il tipo è una cosa di questo genere
- * ```
- * (Array<T>, T -> Array<K>) -> { [K]: [T] }
- * ```
-*/
-function groupByMultiples(list, getKeys) {
-    const dict = {};
-
-    for (const item of list) {
-        const keys = getKeys(item);
-
-        for (const key of keys) {
-            dict[key] = dict[key] || [];
-            dict[key].push(item);
-        }
-    }
-
-    return dict;
-}
+import { base64ToBuffer, bufferToBase64, onEnter, listify, sortBy, groupByMultiples, decompressLZMA, compressLZMA } from "./utils.js";
 
 const Icon = ({ name }) => html`
     <span class="icon material-icons">${name}</span>
 `;
 
-const ModifiableText = ({ text, setText, options }) => {
+const ModifiableText = ({ text, setText }) => {
     // Reference used to programmatically select all text when starting to edit the text
     const $input = useRef(null);
     // Tell if this is in editing state
@@ -166,11 +76,10 @@ const ReviewOrder = ({ order: { text, owners, price } }) => {
 
 const Order = ({ order, setOrder, removeOrder }) => {
     const { text, owners, price } = order;
-    const readOnly = !setOrder;
 
-    const setText = readOnly ? noOp : text => setOrder({ ...order, text });
-    const setOwners = readOnly ? noOp : owners => setOrder({ ...order, owners });
-    const setPrice = readOnly ? noOp : price => setOrder({ ...order, price });
+    const setText = text => setOrder({ ...order, text });
+    const setOwners = owners => setOrder({ ...order, owners });
+    const setPrice = price => setOrder({ ...order, price });
 
     return html`
         <div class="order">
@@ -186,7 +95,6 @@ const Order = ({ order, setOrder, removeOrder }) => {
                                 alert(`Ogni elemento deve avere almeno un propietario`);
                                 return;
                             }
-
                             const newOwners = [...owners];
                             newOwners.splice(i, 1);
                             setOwners(newOwners);
@@ -219,19 +127,28 @@ const Order = ({ order, setOrder, removeOrder }) => {
 };
 
 const App = ({ url }) => {
+    // For handling error and loading states
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(false);
 
     useEffect(() => {
         if (url) {
             setLoading(true);
-            const compressedData = base64ToBuffer(url);
-            console.log('Compressed data:', Array.from(compressedData));
             (async () => {
-                console.log('Decompressing...')
-                const data = await decompressLZMA(compressedData);
-                console.log('Decompressed data:', data);
-                setOrders(JSON.parse(data));
-                setLoading(false);
+                try {
+                    const compressedData = base64ToBuffer(url);
+                    console.log('Compressed data:', Array.from(compressedData));
+
+                    console.log('Decompressing...')
+                    const data = JSON.parse(await decompressLZMA(compressedData));
+
+                    console.log('Decompressed data:', data);
+                    setOrders(data);
+                    setLoading(false);
+                } catch (e) {
+                    setError(true);
+                    console.warn(e);
+                }
             })();
         }
     }, []);
@@ -266,82 +183,84 @@ const App = ({ url }) => {
 
     const generateLink = async () => {
         const data = JSON.stringify(orders);
+        
+        console.log(`Compressing data...`);
         const compressedData = await compressLZMA(data, 9);
+        
+        console.log(`Compressed!`);
         location.hash = bufferToBase64(compressedData);
     };
 
     return html`
-        <div class="orders">
-            ${loading ? 
-                html`
-                    <div class="loading f-center">
-                        <${Icon} name="hourglass_empty" />
-                    </div>
-                ` :
-                html`
-                    ${orders.map((order, i) => {
-                        const setOrder = order => setOrders(listify({ ...orders, [i]: order }));
+        ${!error ? 
+            html`
+                <div class="orders">
+                    ${loading ?
+                        html`
+                            <div class="loading f-center">
+                                <${Icon} name="hourglass_empty" />
+                            </div>
+                        ` :
+                        html`
+                            ${orders.map((order, i) => {
+                            const setOrder = order => setOrders(listify({ ...orders, [i]: order }));
 
-                        const removeOrder = () => {
-                            const newOrders = [...orders];
-                            newOrders.splice(i, 1);
-                            setOrders(newOrders);
+                            const removeOrder = () => {
+                                const newOrders = [...orders];
+                                newOrders.splice(i, 1);
+                                setOrders(newOrders);
+                            }
+
+                            return html`
+                                    <${Order} order=${order} setOrder=${setOrder} removeOrder=${removeOrder}/>
+                                `;
+                        })}
+                        `}
+                </div>
+                <div class="orders-actions f-center">
+                    <button class="text" onClick=${() => addOrder()}>Aggiungi</button>
+                    <button class="text" onClick=${() => setOrders([])}>Cancella tutti</button>
+                    <button class="text" onClick=${() => sortOrders()}>Ordina lessicograficamente per proprietario</button>
+                    <button class="text" onClick=${() => generateLink()}>Genera Link</button>
+                </div>
+                <p>
+                    Il tasto "Genera Link" codifica direttamente tutte le informazioni nel link alla pagina, poi basta che condividi quel link (includendo tutta la parte dopo il <code>#</code>).
+                </p>
+                <hr />
+                <h2>Costo per persona</h2>
+                <div class="receit">
+                    <div class="people">
+                        ${Object.entries(peopleOrders).map(([name, orders]) => {
+                            const totalPrice = orders
+                                .map(order => order.price / order.owners.length)
+                                .reduce((acc, v) => acc + v);
+
+                            return html`
+                                <div class="person">
+                                    <div class="label f-col items-center content-center">
+                                        <div class="name">${name}</div>
+                                        <div class="price">€${totalPrice.toFixed(2)}</div>
+                                    </div>
+                                    <div class="orders">
+                                        ${orders.map(order => html`
+                                            <${ReviewOrder} order=${order}/>
+                                        `)}
+                                    </div>
+                                </div>    
+                                `;
                         }
-
-                        return html`
-                            <${Order} order=${order} setOrder=${setOrder} removeOrder=${removeOrder}/>
-                        `;
-                    })}
-                `}
-        </div>
-        <div class="orders-actions f-center">
-            <button class="text" onClick=${() => addOrder()}>Aggiungi</button>
-            <button class="text" onClick=${() => setOrders([])}>Cancella tutti</button>
-            <button class="text" onClick=${() => sortOrders()}>Ordina lessicograficamente per proprietario</button>
-            <button class="text" onClick=${() => generateLink()}>Genera Link</button>
-        </div>
-        <p>
-            Il tasto "Genera Link" codifica direttamente tutte le informazioni nel link alla pagina, poi basta che condividi quel link (includendo tutta la parte dopo il <code>#</code>).
-        </p>
-        <hr />
-        <h2>Costo per persona</h2>
-        <div class="receit">
-            <div class="people">
-                ${Object.entries(peopleOrders).map(([name, orders]) => {
-                    const totalPrice = orders
-                        .map(order => order.price / order.owners.length)
-                        .reduce((acc, v) => acc + v);
-                    
-                    return html`
-                        <div class="person">
-                            <div class="label f-col items-center content-center">
-                                <div class="name">${name}</div>
-                                <div class="price">€${totalPrice.toFixed(2)}</div>
-                            </div>
-                            <div class="orders">
-                                ${orders.map(order => html`
-                                    <${ReviewOrder} order=${order}/>
-                                `)}
-                            </div>
-                        </div>    
-                        `;
-                    }
-                )}
-            </div>
-        </div>
+                        )}
+                    </div>
+                </div>
+            ` :
+            html`
+                <div class="f-col f-center">
+                    <${Icon} name="warning"/>
+                    <i>Purtroppo qualcosa è andato storto, forse il link contiene dati corrotti :C</i>
+                </div>
+            `}
     `;
 };
 
-function main() {
-    try {
-        const hash = location.hash.replace(/^#/, '');
-        render(html`<${App} url=${hash}/>`, document.querySelector('#app'));
-    } catch (error) {
-        document.querySelector('#app').innerHTML = `
-            <i style="display: block; text-align: center;">Qualcosa è andato storto D:</i>
-        `;
-        console.error(error);
-    }
-}
-
-main();
+const hash = location.hash.replace(/^#/, '');
+render(html`<${App} url=${hash}/>`, document.querySelector('#app'));
