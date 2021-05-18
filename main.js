@@ -212,8 +212,8 @@ const App = ({ url }) => {
                             }
 
                             return html`
-                                    <${Order} order=${order} setOrder=${setOrder} removeOrder=${removeOrder}/>
-                                `;
+                                <${Order} order=${order} setOrder=${setOrder} removeOrder=${removeOrder}/>
+                            `;
                         })}
                         `}
                 </div>
